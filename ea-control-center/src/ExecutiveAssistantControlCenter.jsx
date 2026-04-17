@@ -719,77 +719,51 @@ const EventBlock = ({ event }) => {
 
 // Estimate a compact task card's rendered height so deadline blocks occupy
 // an appropriate slice of the timeline even when no explicit duration exists.
-// `columnCount` accounts for side-by-side packing: when cards are squeezed to
-// 50 % width (or tighter) the title + context lines wrap more, so their real
-// rendered height is meaningfully taller than a full-width card's.
+// `columnCount` accounts for side-by-side packing: narrower cards wrap more.
 const estimateCompactTaskHeight = (task, columnCount = 1) => {
-  // Rough char budget per line. A full-width compact card fits ~48 chars of
-  // 13px title text; each additional column roughly halves that budget.
-  const charsPerLine = Math.max(16, Math.floor(48 / columnCount));
+  // Rough char budget per line. A full-width compact card fits ~46 chars of
+  // 13px title text; halving the width halves the budget (floor at 20).
+  const charsPerLine = Math.max(20, Math.floor(46 / columnCount));
   const titleLen = (task.title || "").length;
-  const titleLines = Math.max(1, Math.ceil(titleLen / charsPerLine));
+  const titleLines = Math.min(3, Math.max(1, Math.ceil(titleLen / charsPerLine)));
 
-  // Base: header row (1-line title) + meta row (chips/time) + padding.
-  let h = 60 + titleLines * 20;
+  // Base: title row + meta row (chips/time) + padding.
+  let h = 58 + titleLines * 18;
 
   const isBlocked = task.status === "blocked";
   const isWaiting = task.status === "waiting";
   const isBlocking =
     (task.blockingTasks || []).length > 0 && !isBlocked && task.status !== "completed";
 
-  // Context lines (BLOCKING / WAITING ON / follow-up) wrap more aggressively
-  // when squeezed, so budget extra vertical room per column.
-  const contextLine = columnCount > 1 ? 52 : 34;
+  // Context lines (BLOCKING / WAITING ON / follow-up) wrap more when squeezed.
+  const contextLine = columnCount > 1 ? 44 : 32;
 
   if (isBlocking) h += contextLine;
   if (isBlocked && (task.blockedBy || []).length > 0) h += contextLine;
   if (isWaiting) {
     h += contextLine;
-    if (task.followUpAction) h += columnCount > 1 ? 36 : 24;
+    if (task.followUpAction) h += columnCount > 1 ? 32 : 22;
   }
   return h;
 };
 
-// Collision-detection column assignment.
-//
-// Each task occupies a vertical slice of the timeline from its due-time top
-// to top + estimated height. Tasks whose slices overlap get assigned to
-// adjacent columns so they render side-by-side rather than stacking.
-//
-// Algorithm:
-//   1. Sort tasks by due time (idealTop).
-//   2. Walk through them, assigning each the lowest column index whose last
-//      task ended before this one starts (interval-graph coloring / greedy).
-//   3. Group contiguous overlap runs into clusters; every card in a cluster
-//      shares the same columnCount, so their widths are equal and they
-//      line up into a clean side-by-side grid.
-//
-// Returns: { placements: [{ task, top, height, column, columnCount }], totalHeight }
+// Collision-detection column assignment with a hard cap at 2 columns.
+// When a task would demand a 3rd column, we close the current cluster and
+// push the task down to start a new cluster below. It loses some time-axis
+// precision but stays readable — narrow strips below ~45% width wrap text
+// to one-word-per-line and become unusable.
+const MAX_COLUMNS = 2;
+
 const computeTaskColumns = (tasks) => {
   const valid = tasks.filter((t) => parseTimeToHours(t.dueTime) != null);
   const sorted = [...valid].sort(
     (a, b) => parseTimeToHours(a.dueTime) - parseTimeToHours(b.dueTime)
   );
 
-  // Helper: build an initial slice with a height estimate for the given width.
-  const makeSlice = (task, columnCount) => {
-    const top = (parseTimeToHours(task.dueTime) - DAY_START_HOUR) * HOUR_HEIGHT;
-    const height = estimateCompactTaskHeight(task, columnCount);
-    return { task, top, bottom: top + height, height };
-  };
-
-  // We run the cluster-and-assign loop iteratively: we re-estimate heights
-  // once we know each cluster's columnCount, then flush the cluster with
-  // width-accurate bottoms. If a re-estimated card now overlaps the next
-  // incoming task, the new task joins the existing cluster instead of opening
-  // a new one — preventing the visual stacking bug.
-
   const placements = [];
-  let cluster = []; // [{ task, top, bottom, height, column }]
-  let clusterEnd = -Infinity; // max bottom in cluster, AFTER repack
+  let cluster = [];
+  let clusterEnd = -Infinity;
 
-  // Repack: once we know cluster.length and max column, recompute heights
-  // with the proper columnCount and refresh bottom/clusterEnd.
   const repackCluster = () => {
     if (!cluster.length) return 0;
     const columnCount = Math.max(...cluster.map((p) => p.column)) + 1;
@@ -804,39 +778,57 @@ const computeTaskColumns = (tasks) => {
   };
 
   const flushCluster = () => {
-    if (!cluster.length) return;
-    repackCluster();
+    if (!cluster.length) return 0;
+    const bottom = repackCluster();
     placements.push(...cluster);
     cluster = [];
     clusterEnd = -Infinity;
+    return bottom;
+  };
+
+  const makeSlice = (task, columnCount, forcedTop) => {
+    const naturalTop = (parseTimeToHours(task.dueTime) - DAY_START_HOUR) * HOUR_HEIGHT;
+    const top = forcedTop != null ? forcedTop : naturalTop;
+    const height = estimateCompactTaskHeight(task, columnCount);
+    return { task, top, bottom: top + height, height };
   };
 
   sorted.forEach((task) => {
     const s = makeSlice(task, 1);
-    // If this task starts after the current cluster's (repacked) bottom, the
-    // previous cluster is complete — flush it.
+
+    // If this task starts after the cluster's repacked bottom, flush.
     if (s.top >= clusterEnd) {
       flushCluster();
     }
-    // Assign lowest free column within the active cluster.
+
+    // Try to assign a column within the cluster (capped at MAX_COLUMNS).
     const columnEnds = {};
     cluster.forEach((p) => {
       columnEnds[p.column] = Math.max(columnEnds[p.column] ?? -Infinity, p.bottom);
     });
     let column = 0;
-    while ((columnEnds[column] ?? -Infinity) > s.top) column += 1;
-    cluster.push({ ...s, column });
-    // Tentatively repack NOW so the next iteration's overlap test uses
-    // width-accurate heights. This is what prevents the "looks fine at
-    // full width but overlaps at 50%" bug.
-    clusterEnd = repackCluster();
+    while ((columnEnds[column] ?? -Infinity) > s.top && column < MAX_COLUMNS) {
+      column += 1;
+    }
+
+    if (column < MAX_COLUMNS) {
+      // Fits. Add to cluster and repack with the new columnCount.
+      cluster.push({ ...s, column });
+      clusterEnd = repackCluster();
+    } else {
+      // Would need a 3rd column → close the cluster, push this task below.
+      const flushedBottom = flushCluster();
+      const bumpedTop = Math.max(s.top, flushedBottom + 6);
+      const bumped = makeSlice(task, 1, bumpedTop);
+      cluster.push({ ...bumped, column: 0 });
+      clusterEnd = repackCluster();
+    }
   });
   flushCluster();
 
   const totalHeight = placements.reduce((m, p) => Math.max(m, p.bottom), 0);
   return { placements, totalHeight };
 };
-
 // Renders a single task card into its assigned column. Uses calc() so the
 // N cards in a cluster evenly divide the lane width, minus a small gutter.
 const TaskColumnBlock = ({ task, taskIndex, onSelect, top, height, column, columnCount }) => {
