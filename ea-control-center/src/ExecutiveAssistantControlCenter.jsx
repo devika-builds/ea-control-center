@@ -735,52 +735,60 @@ const EventBlock = ({ event }) => {
   );
 };
 
+// Hard cap on side-by-side packing. Beyond 2 columns, cards become unreadable
+// (titles wrap word-by-word). A third task that can't fit in a 2-column cluster
+// is pushed DOWN below the cluster instead of being squeezed into a third lane.
+const MAX_COLUMNS = 2;
+
 // Estimate a compact task card's rendered height so deadline blocks occupy
 // an appropriate slice of the timeline even when no explicit duration exists.
-// `columnCount` accounts for side-by-side packing: when cards are squeezed to
-// 50 % width (or tighter) the title + context lines wrap more, so their real
-// rendered height is meaningfully taller than a full-width card's.
+// `columnCount` accounts for side-by-side packing: when cards are at 50 %
+// width their context lines wrap more, but not as dramatically as at 33 %.
 const estimateCompactTaskHeight = (task, columnCount = 1) => {
-  // Rough char budget per line. A full-width compact card fits ~48 chars of
-  // 13px title text; each additional column roughly halves that budget.
-  const charsPerLine = Math.max(16, Math.floor(48 / columnCount));
+  // Char budget per line at compact 13px. Softer ramp than the 3-column-era
+  // estimator: 46 chars at col=1, ~26 at col=2. Title lines capped at 3.
+  const charsPerLine = columnCount === 1 ? 46 : 26;
   const titleLen = (task.title || "").length;
-  const titleLines = Math.max(1, Math.ceil(titleLen / charsPerLine));
+  const titleLines = Math.min(3, Math.max(1, Math.ceil(titleLen / charsPerLine)));
 
-  // Base: header row (1-line title) + meta row (chips/time) + padding.
-  let h = 60 + titleLines * 20;
+  // Base: header row (title) + chip row + padding.
+  let h = 56 + titleLines * 18;
 
   const isBlocked = task.status === "blocked";
   const isWaiting = task.status === "waiting";
   const isBlocking =
     (task.blockingTasks || []).length > 0 && !isBlocked && task.status !== "completed";
 
-  // Context lines (BLOCKING / WAITING ON / follow-up) wrap more aggressively
-  // when squeezed, so budget extra vertical room per column.
-  const contextLine = columnCount > 1 ? 52 : 34;
+  // Context lines (BLOCKING / WAITING ON / follow-up) wrap a bit more at 50%
+  // width but not catastrophically — small penalty only.
+  const contextLine = columnCount > 1 ? 42 : 32;
 
   if (isBlocking) h += contextLine;
   if (isBlocked && (task.blockedBy || []).length > 0) h += contextLine;
   if (isWaiting) {
     h += contextLine;
-    if (task.followUpAction) h += columnCount > 1 ? 36 : 24;
+    if (task.followUpAction) h += columnCount > 1 ? 28 : 22;
   }
   return h;
 };
 
-// Collision-detection column assignment.
+// Collision-detection column assignment with a MAX_COLUMNS=2 hard cap.
 //
-// Each task occupies a vertical slice of the timeline from its due-time top
-// to top + estimated height. Tasks whose slices overlap get assigned to
-// adjacent columns so they render side-by-side rather than stacking.
+// Each task occupies a vertical slice from its due-time top to top + estimated
+// height. Overlapping tasks pack side-by-side into adjacent columns — but
+// never more than MAX_COLUMNS (=2). If a third task would be needed, we
+// *flush* the current cluster and start a new one immediately below it, so
+// the task moves DOWN the timeline rather than being squeezed into a third
+// unreadable lane.
 //
 // Algorithm:
 //   1. Sort tasks by due time (idealTop).
-//   2. Walk through them, assigning each the lowest column index whose last
-//      task ended before this one starts (interval-graph coloring / greedy).
-//   3. Group contiguous overlap runs into clusters; every card in a cluster
-//      shares the same columnCount, so their widths are equal and they
-//      line up into a clean side-by-side grid.
+//   2. For each task: if it starts after the current cluster's repacked
+//      bottom, flush. Otherwise, try to place it in column 0 or 1.
+//   3. If both columns are occupied → flush cluster, bump the task's top to
+//      `flushedBottom + gap`, start a fresh cluster at column 0.
+//   4. After each insertion, repack the cluster so the next iteration's
+//      overlap test uses width-accurate heights.
 //
 // Returns: { placements: [{ task, top, height, column, columnCount }], totalHeight }
 const computeTaskColumns = (tasks) => {
@@ -789,18 +797,16 @@ const computeTaskColumns = (tasks) => {
     (a, b) => parseTimeToHours(a.dueTime) - parseTimeToHours(b.dueTime)
   );
 
-  // Helper: build an initial slice with a height estimate for the given width.
-  const makeSlice = (task, columnCount) => {
-    const top = (parseTimeToHours(task.dueTime) - DAY_START_HOUR) * HOUR_HEIGHT;
+  const CLUSTER_GAP = 8; // vertical gutter between an ejected task and the flushed cluster above
+
+  // Helper: build a slice for the given columnCount. `forcedTop` lets us bump
+  // a task below its natural due-time position when it's been ejected.
+  const makeSlice = (task, columnCount, forcedTop) => {
+    const naturalTop = (parseTimeToHours(task.dueTime) - DAY_START_HOUR) * HOUR_HEIGHT;
+    const top = forcedTop != null ? forcedTop : naturalTop;
     const height = estimateCompactTaskHeight(task, columnCount);
     return { task, top, bottom: top + height, height };
   };
-
-  // We run the cluster-and-assign loop iteratively: we re-estimate heights
-  // once we know each cluster's columnCount, then flush the cluster with
-  // width-accurate bottoms. If a re-estimated card now overlaps the next
-  // incoming task, the new task joins the existing cluster instead of opening
-  // a new one — preventing the visual stacking bug.
 
   const placements = [];
   let cluster = []; // [{ task, top, bottom, height, column }]
@@ -821,12 +827,15 @@ const computeTaskColumns = (tasks) => {
     return maxBottom;
   };
 
+  // Flush returns the cluster's bottom edge so the caller can position
+  // anything being ejected just below it.
   const flushCluster = () => {
-    if (!cluster.length) return;
-    repackCluster();
+    if (!cluster.length) return 0;
+    const bottom = repackCluster();
     placements.push(...cluster);
     cluster = [];
     clusterEnd = -Infinity;
+    return bottom;
   };
 
   sorted.forEach((task) => {
@@ -836,18 +845,29 @@ const computeTaskColumns = (tasks) => {
     if (s.top >= clusterEnd) {
       flushCluster();
     }
-    // Assign lowest free column within the active cluster.
+    // Find lowest free column within the MAX_COLUMNS cap.
     const columnEnds = {};
     cluster.forEach((p) => {
       columnEnds[p.column] = Math.max(columnEnds[p.column] ?? -Infinity, p.bottom);
     });
     let column = 0;
-    while ((columnEnds[column] ?? -Infinity) > s.top) column += 1;
-    cluster.push({ ...s, column });
-    // Tentatively repack NOW so the next iteration's overlap test uses
-    // width-accurate heights. This is what prevents the "looks fine at
-    // full width but overlaps at 50%" bug.
-    clusterEnd = repackCluster();
+    while (column < MAX_COLUMNS && (columnEnds[column] ?? -Infinity) > s.top) {
+      column += 1;
+    }
+
+    if (column < MAX_COLUMNS) {
+      // Fits in-cluster at this column.
+      cluster.push({ ...s, column });
+      clusterEnd = repackCluster();
+    } else {
+      // All columns occupied → eject: flush this cluster and drop the task
+      // into a fresh cluster starting just below the flushed bottom.
+      const flushedBottom = flushCluster();
+      const bumpedTop = Math.max(s.top, flushedBottom + CLUSTER_GAP);
+      const bumped = makeSlice(task, 1, bumpedTop);
+      cluster.push({ ...bumped, column: 0 });
+      clusterEnd = repackCluster();
+    }
   });
   flushCluster();
 
@@ -874,17 +894,19 @@ const TaskColumnBlock = ({ task, taskIndex, onSelect, top, height, column, colum
     >
       {columnCount > 1 && (
         <div
+          aria-hidden="true"
           style={{
             fontSize: 9,
-            fontWeight: 700,
-            letterSpacing: 0.8,
+            fontWeight: 600,
+            letterSpacing: 0.5,
             color: COLORS.textSecondary,
-            textTransform: "uppercase",
+            opacity: 0.75,
             marginBottom: 2,
             fontFamily: MONO_STACK,
+            fontVariantNumeric: "tabular-nums",
           }}
         >
-          {column + 1} / {columnCount}
+          {column + 1}/{columnCount}
         </div>
       )}
       <TaskCard task={task} taskIndex={taskIndex} onSelect={onSelect} compact />
