@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 
 // ---------------------------------------------------------------------------
 // Executive Assistant Control Center
@@ -18,7 +18,7 @@ const COLORS = {
 
   // Typography & borders
   text: "#2A3547",            // Navy Ink — primary text (~12:1 on Silk White)
-  textSecondary: "#5E6B80",   // Mid slate — metadata, hints
+  textSecondary: "#566175",   // Mid slate — metadata, hints (~5.0:1 on Platinum body, AA)
   borderColor: "rgba(42, 53, 71, 0.14)",
   borderStrong: "rgba(42, 53, 71, 0.32)",
 
@@ -425,9 +425,21 @@ const TaskCard = ({ task, taskIndex, onSelect, compact }) => {
     ? Math.min(100, Math.round((task.progress.done / task.progress.estimated) * 100))
     : null;
 
+  // Render as a real <button> when interactive — gains tab order, Enter/Space
+  // activation, focus-visible ring, and SR "button" role. Falls back to a <div>
+  // when this card is used in a non-interactive context (e.g., drawer preview).
+  const Wrapper = onSelect ? "button" : "div";
+  const wrapperProps = onSelect
+    ? {
+        type: "button",
+        onClick: () => onSelect(task),
+        className: "eacc-task-card eacc-btn",
+        "aria-label": `Task: ${task.title}. ${statusMeta.label}. Due ${task.dueTime}.`,
+      }
+    : {};
   return (
-    <div
-      onClick={() => onSelect && onSelect(task)}
+    <Wrapper
+      {...wrapperProps}
       style={{
         background: isCompleted ? COLORS.cardBgMuted : COLORS.cardBg,
         border: `1px solid ${COLORS.borderColor}`,
@@ -438,6 +450,12 @@ const TaskCard = ({ task, taskIndex, onSelect, compact }) => {
         opacity: isBlocked || isCompleted ? 0.82 : 1,
         position: "relative",
         transition: "transform 120ms ease, box-shadow 120ms ease",
+        // Button reset — only needed when rendered as <button>
+        font: "inherit",
+        color: "inherit",
+        textAlign: "left",
+        width: "100%",
+        display: "block",
       }}
       onMouseEnter={(e) => {
         if (onSelect) {
@@ -603,7 +621,7 @@ const TaskCard = ({ task, taskIndex, onSelect, compact }) => {
           )}
         </div>
       )}
-    </div>
+    </Wrapper>
   );
 };
 
@@ -719,51 +737,77 @@ const EventBlock = ({ event }) => {
 
 // Estimate a compact task card's rendered height so deadline blocks occupy
 // an appropriate slice of the timeline even when no explicit duration exists.
-// `columnCount` accounts for side-by-side packing: narrower cards wrap more.
+// `columnCount` accounts for side-by-side packing: when cards are squeezed to
+// 50 % width (or tighter) the title + context lines wrap more, so their real
+// rendered height is meaningfully taller than a full-width card's.
 const estimateCompactTaskHeight = (task, columnCount = 1) => {
-  // Rough char budget per line. A full-width compact card fits ~46 chars of
-  // 13px title text; halving the width halves the budget (floor at 20).
-  const charsPerLine = Math.max(20, Math.floor(46 / columnCount));
+  // Rough char budget per line. A full-width compact card fits ~48 chars of
+  // 13px title text; each additional column roughly halves that budget.
+  const charsPerLine = Math.max(16, Math.floor(48 / columnCount));
   const titleLen = (task.title || "").length;
-  const titleLines = Math.min(3, Math.max(1, Math.ceil(titleLen / charsPerLine)));
+  const titleLines = Math.max(1, Math.ceil(titleLen / charsPerLine));
 
-  // Base: title row + meta row (chips/time) + padding.
-  let h = 58 + titleLines * 18;
+  // Base: header row (1-line title) + meta row (chips/time) + padding.
+  let h = 60 + titleLines * 20;
 
   const isBlocked = task.status === "blocked";
   const isWaiting = task.status === "waiting";
   const isBlocking =
     (task.blockingTasks || []).length > 0 && !isBlocked && task.status !== "completed";
 
-  // Context lines (BLOCKING / WAITING ON / follow-up) wrap more when squeezed.
-  const contextLine = columnCount > 1 ? 44 : 32;
+  // Context lines (BLOCKING / WAITING ON / follow-up) wrap more aggressively
+  // when squeezed, so budget extra vertical room per column.
+  const contextLine = columnCount > 1 ? 52 : 34;
 
   if (isBlocking) h += contextLine;
   if (isBlocked && (task.blockedBy || []).length > 0) h += contextLine;
   if (isWaiting) {
     h += contextLine;
-    if (task.followUpAction) h += columnCount > 1 ? 32 : 22;
+    if (task.followUpAction) h += columnCount > 1 ? 36 : 24;
   }
   return h;
 };
 
-// Collision-detection column assignment with a hard cap at 2 columns.
-// When a task would demand a 3rd column, we close the current cluster and
-// push the task down to start a new cluster below. It loses some time-axis
-// precision but stays readable — narrow strips below ~45% width wrap text
-// to one-word-per-line and become unusable.
-const MAX_COLUMNS = 2;
-
+// Collision-detection column assignment.
+//
+// Each task occupies a vertical slice of the timeline from its due-time top
+// to top + estimated height. Tasks whose slices overlap get assigned to
+// adjacent columns so they render side-by-side rather than stacking.
+//
+// Algorithm:
+//   1. Sort tasks by due time (idealTop).
+//   2. Walk through them, assigning each the lowest column index whose last
+//      task ended before this one starts (interval-graph coloring / greedy).
+//   3. Group contiguous overlap runs into clusters; every card in a cluster
+//      shares the same columnCount, so their widths are equal and they
+//      line up into a clean side-by-side grid.
+//
+// Returns: { placements: [{ task, top, height, column, columnCount }], totalHeight }
 const computeTaskColumns = (tasks) => {
   const valid = tasks.filter((t) => parseTimeToHours(t.dueTime) != null);
   const sorted = [...valid].sort(
     (a, b) => parseTimeToHours(a.dueTime) - parseTimeToHours(b.dueTime)
   );
 
-  const placements = [];
-  let cluster = [];
-  let clusterEnd = -Infinity;
+  // Helper: build an initial slice with a height estimate for the given width.
+  const makeSlice = (task, columnCount) => {
+    const top = (parseTimeToHours(task.dueTime) - DAY_START_HOUR) * HOUR_HEIGHT;
+    const height = estimateCompactTaskHeight(task, columnCount);
+    return { task, top, bottom: top + height, height };
+  };
 
+  // We run the cluster-and-assign loop iteratively: we re-estimate heights
+  // once we know each cluster's columnCount, then flush the cluster with
+  // width-accurate bottoms. If a re-estimated card now overlaps the next
+  // incoming task, the new task joins the existing cluster instead of opening
+  // a new one — preventing the visual stacking bug.
+
+  const placements = [];
+  let cluster = []; // [{ task, top, bottom, height, column }]
+  let clusterEnd = -Infinity; // max bottom in cluster, AFTER repack
+
+  // Repack: once we know cluster.length and max column, recompute heights
+  // with the proper columnCount and refresh bottom/clusterEnd.
   const repackCluster = () => {
     if (!cluster.length) return 0;
     const columnCount = Math.max(...cluster.map((p) => p.column)) + 1;
@@ -778,57 +822,39 @@ const computeTaskColumns = (tasks) => {
   };
 
   const flushCluster = () => {
-    if (!cluster.length) return 0;
-    const bottom = repackCluster();
+    if (!cluster.length) return;
+    repackCluster();
     placements.push(...cluster);
     cluster = [];
     clusterEnd = -Infinity;
-    return bottom;
-  };
-
-  const makeSlice = (task, columnCount, forcedTop) => {
-    const naturalTop = (parseTimeToHours(task.dueTime) - DAY_START_HOUR) * HOUR_HEIGHT;
-    const top = forcedTop != null ? forcedTop : naturalTop;
-    const height = estimateCompactTaskHeight(task, columnCount);
-    return { task, top, bottom: top + height, height };
   };
 
   sorted.forEach((task) => {
     const s = makeSlice(task, 1);
-
-    // If this task starts after the cluster's repacked bottom, flush.
+    // If this task starts after the current cluster's (repacked) bottom, the
+    // previous cluster is complete — flush it.
     if (s.top >= clusterEnd) {
       flushCluster();
     }
-
-    // Try to assign a column within the cluster (capped at MAX_COLUMNS).
+    // Assign lowest free column within the active cluster.
     const columnEnds = {};
     cluster.forEach((p) => {
       columnEnds[p.column] = Math.max(columnEnds[p.column] ?? -Infinity, p.bottom);
     });
     let column = 0;
-    while ((columnEnds[column] ?? -Infinity) > s.top && column < MAX_COLUMNS) {
-      column += 1;
-    }
-
-    if (column < MAX_COLUMNS) {
-      // Fits. Add to cluster and repack with the new columnCount.
-      cluster.push({ ...s, column });
-      clusterEnd = repackCluster();
-    } else {
-      // Would need a 3rd column → close the cluster, push this task below.
-      const flushedBottom = flushCluster();
-      const bumpedTop = Math.max(s.top, flushedBottom + 6);
-      const bumped = makeSlice(task, 1, bumpedTop);
-      cluster.push({ ...bumped, column: 0 });
-      clusterEnd = repackCluster();
-    }
+    while ((columnEnds[column] ?? -Infinity) > s.top) column += 1;
+    cluster.push({ ...s, column });
+    // Tentatively repack NOW so the next iteration's overlap test uses
+    // width-accurate heights. This is what prevents the "looks fine at
+    // full width but overlaps at 50%" bug.
+    clusterEnd = repackCluster();
   });
   flushCluster();
 
   const totalHeight = placements.reduce((m, p) => Math.max(m, p.bottom), 0);
   return { placements, totalHeight };
 };
+
 // Renders a single task card into its assigned column. Uses calc() so the
 // N cards in a cluster evenly divide the lane width, minus a small gutter.
 const TaskColumnBlock = ({ task, taskIndex, onSelect, top, height, column, columnCount }) => {
@@ -1258,8 +1284,13 @@ const QuickAdd = () => {
       }}
     >
       <SectionTitle>Quick Add</SectionTitle>
+      <label htmlFor="eacc-quick-add-input" style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0 }}>
+        Quick add task
+      </label>
       <div style={{ display: "flex", gap: 8 }}>
         <input
+          id="eacc-quick-add-input"
+          aria-label="Quick add task"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
@@ -1267,17 +1298,19 @@ const QuickAdd = () => {
           style={{
             flex: 1,
             background: COLORS.background,
-            border: `1px solid ${COLORS.borderColor}`,
+            border: `1px solid ${COLORS.borderStrong}`,
             borderRadius: 4,
             color: COLORS.text,
-            padding: "8px 10px",
+            padding: "10px 12px",
             fontSize: 13,
             outline: "none",
+            minHeight: 44,
           }}
           onFocus={(e) => (e.currentTarget.style.borderColor = COLORS.accent)}
-          onBlur={(e) => (e.currentTarget.style.borderColor = COLORS.borderColor)}
+          onBlur={(e) => (e.currentTarget.style.borderColor = COLORS.borderStrong)}
         />
         <button
+          type="button"
           className="eacc-quickadd-btn eacc-btn"
           onClick={submit}
           style={{
@@ -1285,12 +1318,13 @@ const QuickAdd = () => {
             color: COLORS.text,
             border: `1px solid ${COLORS.accent}`,
             borderRadius: 4,
-            padding: "8px 14px",
+            padding: "10px 18px",
             fontSize: 12,
             fontWeight: 700,
             letterSpacing: 0.4,
             cursor: "pointer",
             boxShadow: "0 1px 2px rgba(42, 53, 71, 0.12)",
+            minHeight: 44,
           }}
         >
           Add
@@ -1729,6 +1763,41 @@ const NotesView = ({ notes, tasks, events, taskIndex }) => {
 // ---------------------------------------------------------------------------
 
 const TaskDetail = ({ task, taskIndex, onClose }) => {
+  const closeBtnRef = useRef(null);
+  const previouslyFocusedRef = useRef(null);
+
+  // Remember who opened us, move focus to Close button, and restore on unmount.
+  useEffect(() => {
+    if (!task) return undefined;
+    previouslyFocusedRef.current = typeof document !== "undefined" ? document.activeElement : null;
+    // Defer to next tick so the button exists in the DOM before focusing.
+    const id = setTimeout(() => {
+      if (closeBtnRef.current) closeBtnRef.current.focus();
+    }, 0);
+    return () => {
+      clearTimeout(id);
+      if (
+        previouslyFocusedRef.current &&
+        typeof previouslyFocusedRef.current.focus === "function"
+      ) {
+        previouslyFocusedRef.current.focus();
+      }
+    };
+  }, [task]);
+
+  // Escape closes the drawer.
+  useEffect(() => {
+    if (!task) return undefined;
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose && onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [task, onClose]);
+
   if (!task) return null;
   const blockedByTasks = (task.blockedBy || []).map((id) => taskIndex[id]).filter(Boolean);
   const blockingTasks = (task.blockingTasks || []).map((id) => taskIndex[id]).filter(Boolean);
@@ -1738,6 +1807,8 @@ const TaskDetail = ({ task, taskIndex, onClose }) => {
   const priorityMeta = PRIORITY_META[task.priority] || { label: task.priority, bg: COLORS.cardBgMuted, color: COLORS.text };
   const statusMeta = STATUS_META[task.status] || { label: task.status, icon: "●", bg: COLORS.cardBgMuted, color: COLORS.text };
   const categoryMeta = CATEGORY_META[task.category];
+
+  const titleId = `eacc-detail-title-${task.id}`;
 
   return (
     <div
@@ -1754,6 +1825,9 @@ const TaskDetail = ({ task, taskIndex, onClose }) => {
       }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         onClick={(e) => e.stopPropagation()}
         style={{
           width: "min(480px, 100%)",
@@ -1778,21 +1852,26 @@ const TaskDetail = ({ task, taskIndex, onClose }) => {
             >
               {task.id}
             </div>
-            <div style={{ fontSize: 18, fontWeight: 700, color: COLORS.text, marginTop: 4 }}>
+            <div id={titleId} style={{ fontSize: 18, fontWeight: 700, color: COLORS.text, marginTop: 4 }}>
               {task.title}
             </div>
           </div>
           <button
+            ref={closeBtnRef}
+            type="button"
             className="eacc-close eacc-btn"
             onClick={onClose}
+            aria-label="Close task details"
             style={{
               background: "transparent",
-              border: `1px solid ${COLORS.borderColor}`,
-              color: COLORS.textSecondary,
+              border: `1px solid ${COLORS.borderStrong}`,
+              color: COLORS.text,
               borderRadius: 4,
-              padding: "4px 10px",
+              padding: "10px 14px",
               cursor: "pointer",
               fontSize: 12,
+              fontWeight: 600,
+              minHeight: 44,
             }}
           >
             Close
@@ -1995,6 +2074,8 @@ const ExecutiveAssistantControlCenter = () => {
 
         {/* Tabs */}
         <div
+          role="tablist"
+          aria-label="View"
           style={{
             display: "inline-flex",
             background: COLORS.cardBg,
@@ -2003,27 +2084,34 @@ const ExecutiveAssistantControlCenter = () => {
             padding: 4,
           }}
         >
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              className={`eacc-tab eacc-btn ${activeTab === t.id ? "eacc-tab-active" : ""}`}
-              onClick={() => setActiveTab(t.id)}
-              style={{
-                background: activeTab === t.id ? COLORS.accentDim : "transparent",
-                color: activeTab === t.id ? COLORS.text : COLORS.textSecondary,
-                border: activeTab === t.id ? `1px solid ${COLORS.accent}` : "1px solid transparent",
-                borderRadius: 6,
-                padding: "8px 14px",
-                fontSize: 12,
-                fontWeight: 700,
-                letterSpacing: 0.6,
-                cursor: "pointer",
-                textTransform: "uppercase",
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
+          {TABS.map((t) => {
+            const selected = activeTab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                className={`eacc-tab eacc-btn ${selected ? "eacc-tab-active" : ""}`}
+                onClick={() => setActiveTab(t.id)}
+                style={{
+                  background: selected ? COLORS.accentDim : "transparent",
+                  color: selected ? COLORS.text : COLORS.text,
+                  border: selected ? `1px solid ${COLORS.accent}` : "1px solid transparent",
+                  borderRadius: 6,
+                  padding: "10px 18px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: 0.6,
+                  cursor: "pointer",
+                  textTransform: "uppercase",
+                  minHeight: 44,
+                }}
+              >
+                {t.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
