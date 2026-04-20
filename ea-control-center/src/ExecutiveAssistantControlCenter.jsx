@@ -7,28 +7,43 @@ import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, useR
 // ---------------------------------------------------------------------------
 
 // Heritage Silver — Executive Light Mode palette
+// Cool register inspired by private-banking stationery: Platinum, Thistle,
+// Liberty Blue, Little Boy Blue. Token names preserved from the prior Mineral
+// & Paper palette for code stability (sage/slateBlue now hold cool pastels).
 const COLORS = {
-  background: "#E4EAF0",
-  cardBg: "#FAFBFD",
-  cardBgMuted: "#EEF1F5",
-  text: "#2A3547",
-  textSecondary: "#566175",
+  // Surfaces
+  background: "#E4EAF0",      // Platinum mist — body
+  cardBg: "#FAFBFD",          // Silk White — calendar grid / content
+  cardBgMuted: "#EEF1F5",     // Cool ash — nested surfaces
+
+  // Typography & borders
+  text: "#2A3547",            // Navy Ink — primary text (~12:1 on Silk White)
+  textSecondary: "#566175",   // Mid slate — metadata, hints (~5.0:1 on Platinum body, AA)
   borderColor: "rgba(42, 53, 71, 0.14)",
   borderStrong: "rgba(42, 53, 71, 0.32)",
-  accent: "#6B7FAB",
+
+  // Accent (primary / active)
+  accent: "#6B7FAB",          // Liberty Blue — dusty periwinkle
   accentDim: "rgba(107, 127, 171, 0.18)",
-  critical: "#E6D4E1",
+
+  // Critical / blocking
+  critical: "#E6D4E1",        // Soft thistle tint — backgrounds
   criticalBorder: "rgba(140, 94, 127, 0.55)",
-  criticalText: "#8C5E7F",
-  sage: "#B5C3DA",
+  criticalText: "#8C5E7F",    // Deep thistle for text/icons (~5.07:1 on white)
+
+  // Pastel status tokens — cool register, still AA-compliant with Navy Ink
+  sage: "#B5C3DA",            // Little Boy Blue — IN PROGRESS / SCHEDULING (~6.9:1)
   sageBorder: "rgba(74, 106, 148, 0.55)",
-  slateBlue: "#C4CDE3",
+  slateBlue: "#C4CDE3",       // Thistle pastel — EXECUTIVE / informational (~7.5:1)
   slateBlueBorder: "rgba(107, 127, 171, 0.55)",
-  success: "#B5C3DA",
-  warning: "#6B7FAB",
-  error: "#8C5E7F",
+
+  // Semantic aliases (used throughout legacy code paths)
+  success: "#B5C3DA",         // alias → little boy blue
+  warning: "#6B7FAB",         // alias → liberty blue
+  error: "#8C5E7F",           // alias → deep thistle
 };
 
+// Unified font stack — Inter / Geist with tabular-numeral fallback
 const FONT_STACK =
   "'Inter', 'Geist', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif";
 const MONO_STACK =
@@ -128,6 +143,7 @@ const SAMPLE_TASKS = [
     blockingTasks: [],
     tags: ["Scheduling", "Calendar"],
   },
+  // A few more tasks so the This Week view is interesting
   {
     id: "task-008",
     title: "Expense report reconciliation - March",
@@ -244,10 +260,11 @@ const SAMPLE_NOTES = [
 // Utilities
 // ---------------------------------------------------------------------------
 
-const TODAY = "2026-04-17";
+const TODAY = "2026-04-17"; // The "perfect day" the spec is built around
 const DAY_START_HOUR = 8;
 const DAY_END_HOUR = 18;
 
+// Parse "09:30 AM" or "02:00 PM" into fractional hours (e.g. 14.0)
 const parseTimeToHours = (timeStr) => {
   if (!timeStr) return null;
   const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
@@ -260,6 +277,19 @@ const parseTimeToHours = (timeStr) => {
   return hours + minutes / 60;
 };
 
+const formatHour = (h) => {
+  const hour24 = Math.floor(h);
+  const ampm = hour24 >= 12 ? "PM" : "AM";
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12;
+  return `${hour12}:00 ${ampm}`;
+};
+
+// Pastel pill pattern — each status pairs a pastel background with Navy Ink text.
+// `color` = text/border tone (used for chip outlines); `bg` = fill for solid pills.
+// Every meta entry resolves to `{ bg, color }`. Per the global contrast rule,
+// `color` is ALWAYS Navy Ink — text never inherits the pastel hue.
+// `bg` carries the semantic pastel fill. `iconColor` (optional) lets tiny
+// status dots use their tribe color without affecting label legibility.
 const STATUS_META = {
   "backlog":     { label: "Backlog",     color: COLORS.text, bg: COLORS.cardBgMuted,              icon: "○", iconColor: COLORS.textSecondary },
   "in-progress": { label: "In Progress", color: COLORS.text, bg: COLORS.sage,                      icon: "◐", iconColor: COLORS.text },
@@ -274,6 +304,9 @@ const PRIORITY_META = {
   low:    { label: "LOW",  color: COLORS.text, bg: COLORS.cardBgMuted },
 };
 
+// Active / scheduling → Little Boy Blue (sage token); Executive → Thistle
+// (slateBlue token). Other categories pick neutral tones that live comfortably
+// in the Heritage Silver palette. All text renders in Navy Ink for legibility.
 const CATEGORY_META = {
   scheduling: { label: "Scheduling", color: COLORS.text, bg: COLORS.sage },
   executive:  { label: "Executive",  color: COLORS.text, bg: COLORS.slateBlue },
@@ -339,10 +372,14 @@ const SectionTitle = ({ children, right }) => (
 
 const buildTaskIndex = (tasks) => {
   const index = {};
-  tasks.forEach((t) => { index[t.id] = t; });
+  tasks.forEach((t) => {
+    index[t.id] = t;
+  });
   return index;
 };
 
+// Given a root task, return the full set of downstream tasks (tasks that will
+// slip if this one slips). Used for cascading-impact indicators.
 const getDownstreamTaskIds = (rootId, taskIndex) => {
   const visited = new Set();
   const stack = [rootId];
@@ -361,7 +398,7 @@ const getDownstreamTaskIds = (rootId, taskIndex) => {
 };
 
 // ---------------------------------------------------------------------------
-// Task Card
+// Task Card (used in timeline, sidebar, and week view)
 // ---------------------------------------------------------------------------
 
 const TaskCard = ({ task, taskIndex, onSelect, compact }) => {
@@ -374,6 +411,7 @@ const TaskCard = ({ task, taskIndex, onSelect, compact }) => {
   const isWaiting = task.status === "waiting";
   const isCompleted = task.status === "completed";
 
+  // Left border accent — communicates the task's state at a glance.
   let borderAccent = COLORS.borderStrong;
   if (isBlocking && !isBlocked) borderAccent = COLORS.criticalText;
   else if (isWaiting) borderAccent = COLORS.slateBlue;
@@ -387,6 +425,9 @@ const TaskCard = ({ task, taskIndex, onSelect, compact }) => {
     ? Math.min(100, Math.round((task.progress.done / task.progress.estimated) * 100))
     : null;
 
+  // Render as a real <button> when interactive — gains tab order, Enter/Space
+  // activation, focus-visible ring, and SR "button" role. Falls back to a <div>
+  // when this card is used in a non-interactive context (e.g., drawer preview).
   const Wrapper = onSelect ? "button" : "div";
   const wrapperProps = onSelect
     ? {
@@ -409,6 +450,7 @@ const TaskCard = ({ task, taskIndex, onSelect, compact }) => {
         opacity: isBlocked || isCompleted ? 0.82 : 1,
         position: "relative",
         transition: "transform 120ms ease, box-shadow 120ms ease",
+        // Button reset — only needed when rendered as <button>
         font: "inherit",
         color: "inherit",
         textAlign: "left",
@@ -484,6 +526,7 @@ const TaskCard = ({ task, taskIndex, onSelect, compact }) => {
         </div>
       )}
 
+      {/* Progress bar for in-progress tasks */}
       {pct !== null && !compact && (
         <div style={{ marginTop: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: COLORS.textSecondary, marginBottom: 4 }}>
@@ -505,6 +548,7 @@ const TaskCard = ({ task, taskIndex, onSelect, compact }) => {
         </div>
       )}
 
+      {/* Blocking indicator */}
       {isBlocking && !isBlocked && blockingTasks.length > 0 && (
         <div
           style={{
@@ -528,6 +572,7 @@ const TaskCard = ({ task, taskIndex, onSelect, compact }) => {
         </div>
       )}
 
+      {/* Blocked-by indicator */}
       {isBlocked && blockedByTasks.length > 0 && (
         <div
           style={{
@@ -551,6 +596,7 @@ const TaskCard = ({ task, taskIndex, onSelect, compact }) => {
         </div>
       )}
 
+      {/* Waiting (external) indicator */}
       {isWaiting && (
         <div
           style={{
@@ -580,11 +626,13 @@ const TaskCard = ({ task, taskIndex, onSelect, compact }) => {
 };
 
 // ---------------------------------------------------------------------------
-// Timeline primitives
+// Timeline row (calendar event or task block)
 // ---------------------------------------------------------------------------
 
-const HOUR_HEIGHT = 68;
+const HOUR_HEIGHT = 68; // px per hour slot
+const HOURS_SPAN = DAY_END_HOUR - DAY_START_HOUR;
 
+// Shared horizontal grid lines (each lane renders its own set)
 const HourGridLines = () => {
   const lines = [];
   for (let h = DAY_START_HOUR; h <= DAY_END_HOUR; h++) {
@@ -612,6 +660,8 @@ const EventBlock = ({ event }) => {
   const top = (start - DAY_START_HOUR) * HOUR_HEIGHT;
   const height = Math.max(40, (end - start) * HOUR_HEIGHT - 6);
 
+  // Mineral & Paper tints — each event type gets a pastel wash backed by a
+  // stronger border in the same family for anchoring.
   const palette = {
     meeting: {
       bg: "rgba(107, 127, 171, 0.14)",
@@ -685,13 +735,23 @@ const EventBlock = ({ event }) => {
   );
 };
 
+// Hard cap on side-by-side packing. Beyond 2 columns, cards become unreadable
+// (titles wrap word-by-word). A third task that can't fit in a 2-column cluster
+// is pushed DOWN below the cluster instead of being squeezed into a third lane.
 const MAX_COLUMNS = 2;
 
+// Estimate a compact task card's rendered height so deadline blocks occupy
+// an appropriate slice of the timeline even when no explicit duration exists.
+// `columnCount` accounts for side-by-side packing: when cards are at 50 %
+// width their context lines wrap more, but not as dramatically as at 33 %.
 const estimateCompactTaskHeight = (task, columnCount = 1) => {
+  // Char budget per line at compact 13px. Softer ramp than the 3-column-era
+  // estimator: 46 chars at col=1, ~26 at col=2. Title lines capped at 3.
   const charsPerLine = columnCount === 1 ? 46 : 26;
   const titleLen = (task.title || "").length;
   const titleLines = Math.min(3, Math.max(1, Math.ceil(titleLen / charsPerLine)));
 
+  // Base: header row (title) + chip row + padding.
   let h = 56 + titleLines * 18;
 
   const isBlocked = task.status === "blocked";
@@ -699,6 +759,8 @@ const estimateCompactTaskHeight = (task, columnCount = 1) => {
   const isBlocking =
     (task.blockingTasks || []).length > 0 && !isBlocked && task.status !== "completed";
 
+  // Context lines (BLOCKING / WAITING ON / follow-up) wrap a bit more at 50%
+  // width but not catastrophically — small penalty only.
   const contextLine = columnCount > 1 ? 42 : 32;
 
   if (isBlocking) h += contextLine;
@@ -710,20 +772,58 @@ const estimateCompactTaskHeight = (task, columnCount = 1) => {
   return h;
 };
 
+// Collision-detection column assignment with a MAX_COLUMNS=2 hard cap.
+//
+// Each task occupies a vertical slice from its due-time top to top + estimated
+// height. Overlapping tasks pack side-by-side into adjacent columns — but
+// never more than MAX_COLUMNS (=2). If a third task would be needed, we
+// *flush* the current cluster and start a new one immediately below it, so
+// the task moves DOWN the timeline rather than being squeezed into a third
+// unreadable lane.
+//
+// Algorithm:
+//   1. Sort tasks by due time (idealTop).
+//   2. For each task: if it starts after the current cluster's repacked
+//      bottom, flush. Otherwise, try to place it in column 0 or 1.
+//   3. If both columns are occupied → flush cluster, bump the task's top to
+//      `flushedBottom + gap`, start a fresh cluster at column 0.
+//   4. After each insertion, repack the cluster so the next iteration's
+//      overlap test uses width-accurate heights.
+//
+// Returns: { placements: [{ task, top, height, column, columnCount }], totalHeight }
+// `heightOverrides` is an optional map of taskId → actual DOM-measured height in px.
+// When provided, it takes priority over the estimate — the estimate is only used for
+// the very first render (before measurement has happened) and as a fallback for any
+// task not yet present in the override map.
 const computeTaskColumns = (tasks, heightOverrides) => {
   const valid = tasks.filter((t) => parseTimeToHours(t.dueTime) != null);
   const sorted = [...valid].sort(
     (a, b) => parseTimeToHours(a.dueTime) - parseTimeToHours(b.dueTime)
   );
 
-  const CLUSTER_GAP = 8;
+  const CLUSTER_GAP = 8; // vertical gutter between an ejected task and the flushed cluster above
 
+  // Lookup a height for this (task, columnCount) pair. Measurements are keyed
+  // by both taskId AND columnCount because a card's real rendered height
+  // depends on its width: a card at half-width wraps more and is taller than
+  // the same card at full width. Keeping per-width measurements prevents a
+  // cross-width measurement from dragging the layout back and forth.
   const heightFor = (task, columnCount) => {
-    const measured = heightOverrides && heightOverrides[task.id];
-    if (measured != null && measured > 0) return measured;
+    if (heightOverrides) {
+      const exact = heightOverrides[`${task.id}:${columnCount}`];
+      if (exact != null && exact > 0) return exact;
+      // Fallback: any measurement we have for this task, even at a different
+      // column count. Better than the raw estimate since it comes from real DOM.
+      for (let c = MAX_COLUMNS; c >= 1; c--) {
+        const alt = heightOverrides[`${task.id}:${c}`];
+        if (alt != null && alt > 0) return alt;
+      }
+    }
     return estimateCompactTaskHeight(task, columnCount);
   };
 
+  // Helper: build a slice for the given columnCount. `forcedTop` lets us bump
+  // a task below its natural due-time position when it's been ejected.
   const makeSlice = (task, columnCount, forcedTop) => {
     const naturalTop = (parseTimeToHours(task.dueTime) - DAY_START_HOUR) * HOUR_HEIGHT;
     const top = forcedTop != null ? forcedTop : naturalTop;
@@ -732,9 +832,16 @@ const computeTaskColumns = (tasks, heightOverrides) => {
   };
 
   const placements = [];
-  let cluster = [];
-  let clusterEnd = -Infinity;
+  let cluster = []; // [{ task, top, bottom, height, column }]
+  let clusterEnd = -Infinity; // max bottom in cluster, AFTER repack
+  // Minimum top any task in a *new* (post-flush) cluster may start at. This
+  // prevents a later task whose natural top falls inside the span of an
+  // already-flushed cluster from being placed *on top of* those flushed
+  // cards — which otherwise visually overlaps them at the same (col, cc).
+  let clusterMinTop = 0;
 
+  // Repack: once we know cluster.length and max column, recompute heights
+  // with the proper columnCount and refresh bottom/clusterEnd.
   const repackCluster = () => {
     if (!cluster.length) return 0;
     const columnCount = Math.max(...cluster.map((p) => p.column)) + 1;
@@ -748,20 +855,31 @@ const computeTaskColumns = (tasks, heightOverrides) => {
     return maxBottom;
   };
 
+  // Flush returns the cluster's bottom edge and raises `clusterMinTop` so the
+  // next cluster sits safely below the just-flushed one.
   const flushCluster = () => {
-    if (!cluster.length) return 0;
+    if (!cluster.length) return clusterMinTop;
     const bottom = repackCluster();
     placements.push(...cluster);
     cluster = [];
     clusterEnd = -Infinity;
+    if (bottom + CLUSTER_GAP > clusterMinTop) clusterMinTop = bottom + CLUSTER_GAP;
     return bottom;
   };
 
   sorted.forEach((task) => {
-    const s = makeSlice(task, 1);
+    const natural = (parseTimeToHours(task.dueTime) - DAY_START_HOUR) * HOUR_HEIGHT;
+    // If this task's natural top lands inside a previously-flushed cluster's
+    // span, raise it to `clusterMinTop` so we don't render on top of cards
+    // that are already placed. Uses makeSlice's forcedTop when bumping.
+    const effTop = Math.max(natural, clusterMinTop);
+    const s = makeSlice(task, 1, effTop === natural ? undefined : effTop);
+    // If this task starts after the current cluster's (repacked) bottom, the
+    // previous cluster is complete — flush it.
     if (s.top >= clusterEnd) {
       flushCluster();
     }
+    // Find lowest free column within the MAX_COLUMNS cap.
     const columnEnds = {};
     cluster.forEach((p) => {
       columnEnds[p.column] = Math.max(columnEnds[p.column] ?? -Infinity, p.bottom);
@@ -772,11 +890,14 @@ const computeTaskColumns = (tasks, heightOverrides) => {
     }
 
     if (column < MAX_COLUMNS) {
+      // Fits in-cluster at this column.
       cluster.push({ ...s, column });
       clusterEnd = repackCluster();
     } else {
-      const flushedBottom = flushCluster();
-      const bumpedTop = Math.max(s.top, flushedBottom + CLUSTER_GAP);
+      // All columns occupied → eject: flush this cluster and drop the task
+      // into a fresh cluster starting just below the flushed bottom.
+      flushCluster();
+      const bumpedTop = Math.max(s.top, clusterMinTop);
       const bumped = makeSlice(task, 1, bumpedTop);
       cluster.push({ ...bumped, column: 0 });
       clusterEnd = repackCluster();
@@ -788,6 +909,11 @@ const computeTaskColumns = (tasks, heightOverrides) => {
   return { placements, totalHeight };
 };
 
+// Renders a single task card into its assigned column. Uses calc() so the
+// N cards in a cluster evenly divide the lane width, minus a small gutter.
+// The wrapper is allowed to grow to its natural content height; `cardRef` lets
+// the parent lane measure the true rendered height and feed it back into the
+// column-assignment pass so cards never overlap.
 const TaskColumnBlock = ({ task, taskIndex, onSelect, top, column, columnCount, cardRef }) => {
   const gapPx = 6;
   const widthCalc = `calc((100% - ${gapPx * (columnCount - 1)}px) / ${columnCount})`;
@@ -826,10 +952,25 @@ const TaskColumnBlock = ({ task, taskIndex, onSelect, top, column, columnCount, 
 };
 
 // ---------------------------------------------------------------------------
-// TaskTimelineLane — two-pass DOM measurement to prevent overlaps
+// Today timeline grid — three lanes (hours, events, task deadlines) with
+// two-pass DOM measurement for the task lane.
 // ---------------------------------------------------------------------------
-
-const TaskTimelineLane = ({ todaysTasks, taskIndex, onSelectTask, baseHeight, emptyLabel }) => {
+//
+// On first render we lay out task cards using `estimateCompactTaskHeight`.
+// After React commits the DOM, `useLayoutEffect` measures each card's real
+// `offsetHeight`, stores the map in state, and the component re-renders with
+// `computeTaskColumns` now consulting the measurements. This happens before
+// paint, so the user never sees the unmeasured pass — it guarantees that no
+// card overlaps a neighbour or overflows the lane, regardless of how much
+// BLOCKING / WAITING / follow-up content a card contains.
+//
+// All three lanes share the same `laneHeight` so the hour grid lines stay
+// aligned with events and tasks even when tall cards push the lane taller
+// than the natural 8 AM – 6 PM span.
+//
+// Guard against oscillation: only call setState when at least one measurement
+// differs from the current record by more than 2px.
+const TodayTimelineGrid = ({ todaysEvents, todaysTasks, taskIndex, onSelectTask }) => {
   const [measured, setMeasured] = useState({});
   const cardRefs = useRef(new Map());
 
@@ -838,64 +979,142 @@ const TaskTimelineLane = ({ todaysTasks, taskIndex, onSelectTask, baseHeight, em
     [todaysTasks, measured]
   );
 
+  const baseHeight = (DAY_END_HOUR - DAY_START_HOUR) * HOUR_HEIGHT + 8;
   const laneHeight = Math.max(baseHeight, stack.totalHeight + 8);
 
   useLayoutEffect(() => {
-    const next = {};
+    // Build a fresh measurements map keyed by `${taskId}:${columnCount}` so
+    // the layout pass uses width-correct heights. We preserve prior entries
+    // for keys not currently rendered so we don't lose them across rerenders
+    // triggered by state that doesn't change the task list.
+    const next = { ...measured };
     let changed = false;
+    // Index placements by taskId so we know each card's current columnCount.
+    const colByTask = {};
+    stack.placements.forEach((p) => {
+      colByTask[p.task.id] = p.columnCount;
+    });
     cardRefs.current.forEach((el, taskId) => {
       if (!el) return;
       const h = el.offsetHeight;
-      if (h > 0) {
-        next[taskId] = h;
-        const prev = measured[taskId];
-        if (prev == null || Math.abs(prev - h) > 2) changed = true;
+      const cc = colByTask[taskId];
+      if (h > 0 && cc != null) {
+        const key = `${taskId}:${cc}`;
+        const prev = next[key];
+        if (prev == null || Math.abs(prev - h) > 2) {
+          next[key] = h;
+          changed = true;
+        }
       }
-    });
-    Object.keys(measured).forEach((k) => {
-      if (!(k in next)) changed = true;
     });
     if (changed) setMeasured(next);
   }, [stack.placements, measured]);
 
   return (
-    <div style={{ position: "relative", height: laneHeight }}>
-      <HourGridLines />
-      {stack.placements.map((p) => (
-        <TaskColumnBlock
-          key={p.task.id}
-          task={p.task}
-          taskIndex={taskIndex}
-          onSelect={onSelectTask}
-          top={p.top}
-          column={p.column}
-          columnCount={p.columnCount}
-          cardRef={(el) => {
-            if (el) cardRefs.current.set(p.task.id, el);
-            else cardRefs.current.delete(p.task.id);
-          }}
-        />
-      ))}
-      {stack.placements.length === 0 && (
-        <div
-          style={{
-            position: "absolute",
-            top: 12,
-            left: 8,
-            fontSize: 11,
-            color: COLORS.textSecondary,
-            fontStyle: "italic",
-          }}
-        >
-          {emptyLabel || "No task deadlines today."}
-        </div>
-      )}
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "56px 1fr 1fr",
+        gap: 8,
+      }}
+    >
+      {/* Hour labels */}
+      <div style={{ position: "relative", height: laneHeight }}>
+        {Array.from(
+          { length: DAY_END_HOUR - DAY_START_HOUR + 1 },
+          (_, i) => {
+            const h = DAY_START_HOUR + i;
+            const ampm = h >= 12 ? "PM" : "AM";
+            const hour12 = h % 12 === 0 ? 12 : h % 12;
+            return (
+              <div
+                key={h}
+                style={{
+                  position: "absolute",
+                  top: i * HOUR_HEIGHT - 6,
+                  right: 6,
+                  fontSize: 10,
+                  fontFamily: MONO_STACK,
+                  fontVariantNumeric: "tabular-nums",
+                  color: COLORS.textSecondary,
+                  letterSpacing: 0.4,
+                }}
+              >
+                {hour12} {ampm}
+              </div>
+            );
+          }
+        )}
+      </div>
+
+      {/* Events lane */}
+      <div
+        style={{
+          position: "relative",
+          height: laneHeight,
+          borderRight: `1px dashed ${COLORS.borderColor}`,
+          paddingRight: 4,
+        }}
+      >
+        <HourGridLines />
+        {todaysEvents.map((e) => (
+          <EventBlock key={e.id} event={e} />
+        ))}
+        {todaysEvents.length === 0 && (
+          <div
+            style={{
+              position: "absolute",
+              top: 12,
+              left: 8,
+              fontSize: 11,
+              color: COLORS.textSecondary,
+              fontStyle: "italic",
+            }}
+          >
+            No events scheduled.
+          </div>
+        )}
+      </div>
+
+      {/* Task deadlines lane */}
+      <div style={{ position: "relative", height: laneHeight }}>
+        <HourGridLines />
+        {stack.placements.map((p) => (
+          <TaskColumnBlock
+            key={p.task.id}
+            task={p.task}
+            taskIndex={taskIndex}
+            onSelect={onSelectTask}
+            top={p.top}
+            column={p.column}
+            columnCount={p.columnCount}
+            cardRef={(el) => {
+              if (el) cardRefs.current.set(p.task.id, el);
+              else cardRefs.current.delete(p.task.id);
+            }}
+          />
+        ))}
+        {stack.placements.length === 0 && (
+          <div
+            style={{
+              position: "absolute",
+              top: 12,
+              left: 8,
+              fontSize: 11,
+              color: COLORS.textSecondary,
+              fontStyle: "italic",
+            }}
+          >
+            No task deadlines today.
+          </div>
+        )}
+      </div>
     </div>
   );
 };
 
 // ---------------------------------------------------------------------------
-// Blocking Alert
+// Blocking Alert (top of Today view)
 // ---------------------------------------------------------------------------
 
 const BlockingAlert = ({ alertTask, downstreamCount, minutesRemaining }) => {
@@ -977,10 +1196,13 @@ const TodayView = ({ tasks, events, taskIndex, onSelectTask }) => {
 
   const counts = useMemo(() => {
     const c = { "in-progress": 0, waiting: 0, blocked: 0, completed: 0, backlog: 0 };
-    todaysTasks.forEach((t) => { c[t.status] = (c[t.status] || 0) + 1; });
+    todaysTasks.forEach((t) => {
+      c[t.status] = (c[t.status] || 0) + 1;
+    });
     return c;
   }, [todaysTasks]);
 
+  // Alert: the task with the most downstream impact due today
   const alert = useMemo(() => {
     let best = null;
     todaysTasks.forEach((t) => {
@@ -994,6 +1216,7 @@ const TodayView = ({ tasks, events, taskIndex, onSelectTask }) => {
     return best;
   }, [todaysTasks, taskIndex]);
 
+  // Simulated "now" – the spec is set to Apr 17, 2026; we pin ~09:55am for demo.
   const simulatedNowHours = 9 + 55 / 60;
 
   let minutesRemaining = null;
@@ -1002,6 +1225,7 @@ const TodayView = ({ tasks, events, taskIndex, onSelectTask }) => {
     if (due != null) minutesRemaining = Math.round((due - simulatedNowHours) * 60);
   }
 
+  // Overdue / at-risk for sidebar
   const atRisk = useMemo(() => {
     return todaysTasks.filter((t) => {
       if (t.status === "completed") return false;
@@ -1013,10 +1237,9 @@ const TodayView = ({ tasks, events, taskIndex, onSelectTask }) => {
 
   const waitingTasks = todaysTasks.filter((t) => t.status === "waiting");
 
-  const baseHeight = (DAY_END_HOUR - DAY_START_HOUR) * HOUR_HEIGHT + 8;
-
   return (
     <div>
+      {/* Header strip */}
       <div
         style={{
           display: "flex",
@@ -1078,6 +1301,7 @@ const TodayView = ({ tasks, events, taskIndex, onSelectTask }) => {
         >
           <SectionTitle>Timeline — 8 AM to 6 PM</SectionTitle>
 
+          {/* Lane headers */}
           <div
             style={{
               display: "grid",
@@ -1096,81 +1320,12 @@ const TodayView = ({ tasks, events, taskIndex, onSelectTask }) => {
             <div>Task Deadlines</div>
           </div>
 
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "56px 1fr 1fr",
-              gap: 8,
-            }}
-          >
-            {/* Hour labels */}
-            <div style={{ position: "relative", minHeight: baseHeight }}>
-              {Array.from(
-                { length: DAY_END_HOUR - DAY_START_HOUR + 1 },
-                (_, i) => {
-                  const h = DAY_START_HOUR + i;
-                  const ampm = h >= 12 ? "PM" : "AM";
-                  const hour12 = h % 12 === 0 ? 12 : h % 12;
-                  return (
-                    <div
-                      key={h}
-                      style={{
-                        position: "absolute",
-                        top: i * HOUR_HEIGHT - 6,
-                        right: 6,
-                        fontSize: 10,
-                        fontFamily: MONO_STACK,
-                        fontVariantNumeric: "tabular-nums",
-                        color: COLORS.textSecondary,
-                        letterSpacing: 0.4,
-                      }}
-                    >
-                      {hour12} {ampm}
-                    </div>
-                  );
-                }
-              )}
-            </div>
-
-            {/* Events lane */}
-            <div
-              style={{
-                position: "relative",
-                minHeight: baseHeight,
-                borderRight: `1px dashed ${COLORS.borderColor}`,
-                paddingRight: 4,
-              }}
-            >
-              <HourGridLines />
-              {todaysEvents.map((e) => (
-                <EventBlock key={e.id} event={e} />
-              ))}
-              {todaysEvents.length === 0 && (
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 12,
-                    left: 8,
-                    fontSize: 11,
-                    color: COLORS.textSecondary,
-                    fontStyle: "italic",
-                  }}
-                >
-                  No events scheduled.
-                </div>
-              )}
-            </div>
-
-            {/* Task deadlines lane — TaskTimelineLane performs two-pass DOM
-                measurement so cards never overlap regardless of content height */}
-            <TaskTimelineLane
-              todaysTasks={todaysTasks}
-              taskIndex={taskIndex}
-              onSelectTask={onSelectTask}
-              baseHeight={baseHeight}
-              emptyLabel="No task deadlines today."
-            />
-          </div>
+          <TodayTimelineGrid
+            todaysEvents={todaysEvents}
+            todaysTasks={todaysTasks}
+            taskIndex={taskIndex}
+            onSelectTask={onSelectTask}
+          />
         </div>
 
         {/* Sidebar */}
@@ -1227,7 +1382,7 @@ const TodayView = ({ tasks, events, taskIndex, onSelectTask }) => {
 };
 
 // ---------------------------------------------------------------------------
-// Quick Add
+// Quick Add (sidebar)
 // ---------------------------------------------------------------------------
 
 const QuickAdd = () => {
@@ -1308,7 +1463,7 @@ const QuickAdd = () => {
 };
 
 // ---------------------------------------------------------------------------
-// This Week view
+// This Week view — bottleneck detection
 // ---------------------------------------------------------------------------
 
 const WEEK_DAYS = [
@@ -1354,6 +1509,7 @@ const WeekView = ({ tasks, taskIndex, onSelectTask }) => {
         </div>
       </div>
 
+      {/* Bottleneck bar chart */}
       <div
         style={{
           background: COLORS.cardBg,
@@ -1412,6 +1568,7 @@ const WeekView = ({ tasks, taskIndex, onSelectTask }) => {
         </div>
       </div>
 
+      {/* Day-by-day list */}
       <div style={{ display: "grid", gridTemplateColumns: `repeat(${WEEK_DAYS.length}, minmax(0, 1fr))`, gap: 12 }}>
         {WEEK_DAYS.map((d) => (
           <div
@@ -1474,6 +1631,7 @@ const CalendarView = ({ events, tasks, taskIndex }) => {
 
   const dates = Object.keys(byDate).sort();
 
+  // Available slots (naive): on TODAY, surface the gaps between events inside 8am-6pm
   const availableSlotsToday = useMemo(() => {
     const todaysEvents = (byDate[TODAY] || []).slice().sort(
       (a, b) => parseTimeToHours(a.startTime) - parseTimeToHours(b.startTime)
@@ -1731,9 +1889,11 @@ const TaskDetail = ({ task, taskIndex, onClose }) => {
   const closeBtnRef = useRef(null);
   const previouslyFocusedRef = useRef(null);
 
+  // Remember who opened us, move focus to Close button, and restore on unmount.
   useEffect(() => {
     if (!task) return undefined;
     previouslyFocusedRef.current = typeof document !== "undefined" ? document.activeElement : null;
+    // Defer to next tick so the button exists in the DOM before focusing.
     const id = setTimeout(() => {
       if (closeBtnRef.current) closeBtnRef.current.focus();
     }, 0);
@@ -1748,6 +1908,7 @@ const TaskDetail = ({ task, taskIndex, onClose }) => {
     };
   }, [task]);
 
+  // Escape closes the drawer.
   useEffect(() => {
     if (!task) return undefined;
     const onKey = (e) => {
@@ -1952,6 +2113,7 @@ const ExecutiveAssistantControlCenter = () => {
         minHeight: 720,
       }}
     >
+      {/* Interaction polish — palette locked, motion only */}
       <style>{`
         .eacc-btn {
           transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease, transform 120ms ease, box-shadow 150ms ease;
@@ -1989,6 +2151,7 @@ const ExecutiveAssistantControlCenter = () => {
         .eacc-alert:hover {
           box-shadow: 0 6px 18px rgba(140,94,127,0.22);
         }
+        /* Respect reduced motion */
         @media (prefers-reduced-motion: reduce) {
           .eacc-btn, .eacc-event, .eacc-alert {
             transition: none !important;
@@ -1996,104 +2159,105 @@ const ExecutiveAssistantControlCenter = () => {
           .eacc-event:hover { transform: none !important; }
         }
       `}</style>
+    <div
+      style={{
+        background: COLORS.cardBg,
+        color: COLORS.text,
+        fontFamily: FONT_STACK,
+        padding: 24,
+        borderRadius: 12,
+        border: `1px solid ${COLORS.borderColor}`,
+        boxShadow: "0 1px 2px rgba(42, 53, 71, 0.04), 0 8px 24px rgba(42, 53, 71, 0.06)",
+        minHeight: 640,
+      }}
+    >
+      {/* Header */}
       <div
         style={{
-          background: COLORS.cardBg,
-          color: COLORS.text,
-          fontFamily: FONT_STACK,
-          padding: 24,
-          borderRadius: 12,
-          border: `1px solid ${COLORS.borderColor}`,
-          boxShadow: "0 1px 2px rgba(42, 53, 71, 0.04), 0 8px 24px rgba(42, 53, 71, 0.06)",
-          minHeight: 640,
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          marginBottom: 18,
+          flexWrap: "wrap",
+          gap: 12,
         }}
       >
-        {/* Header */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 18,
-            flexWrap: "wrap",
-            gap: 12,
-          }}
-        >
-          <div>
-            <div style={{ fontSize: 11, color: COLORS.textSecondary, letterSpacing: 2, textTransform: "uppercase", fontWeight: 700, borderLeft: `3px solid ${COLORS.accent}`, paddingLeft: 8 }}>
-              Portfolio Piece
-            </div>
-            <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>
-              Executive Assistant Control Center
-            </div>
-            <div style={{ fontSize: 12, color: COLORS.textSecondary, marginTop: 4, maxWidth: 640 }}>
-              Not a task list — a system that models EA reality: blocking dependencies, waiting
-              states, time-boxed days, and cascading downstream impact.
-            </div>
+        <div>
+          <div style={{ fontSize: 11, color: COLORS.textSecondary, letterSpacing: 2, textTransform: "uppercase", fontWeight: 700, borderLeft: `3px solid ${COLORS.accent}`, paddingLeft: 8 }}>
+            Portfolio Piece
           </div>
-
-          <div
-            role="tablist"
-            aria-label="View"
-            style={{
-              display: "inline-flex",
-              background: COLORS.cardBg,
-              border: `1px solid ${COLORS.borderColor}`,
-              borderRadius: 8,
-              padding: 4,
-            }}
-          >
-            {TABS.map((t) => {
-              const selected = activeTab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={selected}
-                  className={`eacc-tab eacc-btn ${selected ? "eacc-tab-active" : ""}`}
-                  onClick={() => setActiveTab(t.id)}
-                  style={{
-                    background: selected ? COLORS.accentDim : "transparent",
-                    color: COLORS.text,
-                    border: selected ? `1px solid ${COLORS.accent}` : "1px solid transparent",
-                    borderRadius: 6,
-                    padding: "10px 18px",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    letterSpacing: 0.6,
-                    cursor: "pointer",
-                    textTransform: "uppercase",
-                    minHeight: 44,
-                  }}
-                >
-                  {t.label}
-                </button>
-              );
-            })}
+          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>
+            Executive Assistant Control Center
+          </div>
+          <div style={{ fontSize: 12, color: COLORS.textSecondary, marginTop: 4, maxWidth: 640 }}>
+            Not a task list — a system that models EA reality: blocking dependencies, waiting
+            states, time-boxed days, and cascading downstream impact.
           </div>
         </div>
 
-        {activeTab === "today" && (
-          <TodayView
-            tasks={tasks}
-            events={events}
-            taskIndex={taskIndex}
-            onSelectTask={setSelectedTask}
-          />
-        )}
-        {activeTab === "week" && (
-          <WeekView tasks={tasks} taskIndex={taskIndex} onSelectTask={setSelectedTask} />
-        )}
-        {activeTab === "calendar" && (
-          <CalendarView events={events} tasks={tasks} taskIndex={taskIndex} />
-        )}
-        {activeTab === "notes" && (
-          <NotesView notes={notes} tasks={tasks} events={events} taskIndex={taskIndex} />
-        )}
-
-        <TaskDetail task={selectedTask} taskIndex={taskIndex} onClose={() => setSelectedTask(null)} />
+        {/* Tabs */}
+        <div
+          role="tablist"
+          aria-label="View"
+          style={{
+            display: "inline-flex",
+            background: COLORS.cardBg,
+            border: `1px solid ${COLORS.borderColor}`,
+            borderRadius: 8,
+            padding: 4,
+          }}
+        >
+          {TABS.map((t) => {
+            const selected = activeTab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                className={`eacc-tab eacc-btn ${selected ? "eacc-tab-active" : ""}`}
+                onClick={() => setActiveTab(t.id)}
+                style={{
+                  background: selected ? COLORS.accentDim : "transparent",
+                  color: selected ? COLORS.text : COLORS.text,
+                  border: selected ? `1px solid ${COLORS.accent}` : "1px solid transparent",
+                  borderRadius: 6,
+                  padding: "10px 18px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: 0.6,
+                  cursor: "pointer",
+                  textTransform: "uppercase",
+                  minHeight: 44,
+                }}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
+
+      {activeTab === "today" && (
+        <TodayView
+          tasks={tasks}
+          events={events}
+          taskIndex={taskIndex}
+          onSelectTask={setSelectedTask}
+        />
+      )}
+      {activeTab === "week" && (
+        <WeekView tasks={tasks} taskIndex={taskIndex} onSelectTask={setSelectedTask} />
+      )}
+      {activeTab === "calendar" && (
+        <CalendarView events={events} tasks={tasks} taskIndex={taskIndex} />
+      )}
+      {activeTab === "notes" && (
+        <NotesView notes={notes} tasks={tasks} events={events} taskIndex={taskIndex} />
+      )}
+
+      <TaskDetail task={selectedTask} taskIndex={taskIndex} onClose={() => setSelectedTask(null)} />
+    </div>
     </div>
   );
 };
