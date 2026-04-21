@@ -2094,7 +2094,9 @@ const TABS = [
   { id: "notes", label: "Notes" },
 ];
 
-const ExecutiveAssistantControlCenter = () => {
+// Core demo (renamed from the former default export). The shell at the bottom
+// of this file wraps this component in the editorial portfolio layout.
+const EAControlCenterCore = () => {
   const [activeTab, setActiveTab] = useState("today");
   const [tasks] = useState(SAMPLE_TASKS);
   const [events] = useState(SAMPLE_CALENDAR_EVENTS);
@@ -2106,11 +2108,10 @@ const ExecutiveAssistantControlCenter = () => {
   return (
     <div
       style={{
-        background: COLORS.background,
+        background: "transparent",
         fontFamily: FONT_STACK,
         color: COLORS.text,
-        padding: 28,
-        minHeight: 720,
+        padding: 0,
       }}
     >
       {/* Interaction polish — palette locked, motion only */}
@@ -2262,4 +2263,934 @@ const ExecutiveAssistantControlCenter = () => {
   );
 };
 
-export default ExecutiveAssistantControlCenter;
+// ===========================================================================
+// Editorial Portfolio Shell
+// Wraps the demo in a magazine-style layout: sticky nav → hero → metrics →
+// framed live demo → case study narrative → next-piece footer CTA. Plus a
+// keyboard shortcut overlay (press ?) and a persistent kbd hint.
+// ===========================================================================
+
+const SHELL = { maxW: 1200 };
+
+// Count up from 0 to value when the element scrolls into view. Respects
+// prefers-reduced-motion (jumps straight to the final value).
+function AnimatedCounter({ value, suffix = "", duration = 1400 }) {
+  const [display, setDisplay] = useState(0);
+  const [done, setDone] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || done) return;
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) {
+      setDisplay(value);
+      setDone(true);
+      return;
+    }
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && !done) {
+          setDone(true);
+          const start = performance.now();
+          const tick = (now) => {
+            const t = Math.min(1, (now - start) / duration);
+            const eased = 1 - Math.pow(1 - t, 3);
+            setDisplay(Math.floor(value * eased));
+            if (t < 1) requestAnimationFrame(tick);
+            else setDisplay(value);
+          };
+          requestAnimationFrame(tick);
+          io.disconnect();
+        }
+      },
+      { threshold: 0.4 }
+    );
+    if (ref.current) io.observe(ref.current);
+    return () => io.disconnect();
+  }, [value, duration, done]);
+
+  return (
+    <span ref={ref}>
+      {display}
+      {suffix}
+    </span>
+  );
+}
+
+function ShellTopNav() {
+  return (
+    <nav
+      role="navigation"
+      aria-label="Portfolio navigation"
+      style={{
+        position: "sticky",
+        top: 0,
+        zIndex: 50,
+        background: "rgba(250, 251, 253, 0.88)",
+        backdropFilter: "saturate(180%) blur(12px)",
+        WebkitBackdropFilter: "saturate(180%) blur(12px)",
+        borderBottom: `1px solid ${COLORS.borderColor}`,
+        fontFamily: FONT_STACK,
+      }}
+    >
+      <div
+        style={{
+          maxWidth: SHELL.maxW,
+          margin: "0 auto",
+          padding: "14px 24px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 16,
+        }}
+      >
+        <a
+          href="#top"
+          aria-label="Devika Ramkaran — back to top"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+            color: COLORS.text,
+            textDecoration: "none",
+            fontWeight: 700,
+            fontSize: 14,
+            letterSpacing: 0.2,
+          }}
+        >
+          <span
+            aria-hidden="true"
+            style={{
+              width: 26,
+              height: 26,
+              borderRadius: 7,
+              background: COLORS.accent,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#FFFFFF",
+              fontSize: 11,
+              fontWeight: 800,
+              letterSpacing: 0.5,
+            }}
+          >
+            DR
+          </span>
+          <span className="eash-nav-brand-name">Devika Ramkaran</span>
+        </a>
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          <a href="#demo" className="eash-nav-link">Demo</a>
+          <a href="#case-study" className="eash-nav-link">Case study</a>
+          <a
+            href="mailto:vikkir29@gmail.com"
+            style={{
+              padding: "8px 16px",
+              borderRadius: 8,
+              background: COLORS.accent,
+              color: "#FFFFFF",
+              textDecoration: "none",
+              fontSize: 13,
+              fontWeight: 700,
+              marginLeft: 6,
+              fontFamily: FONT_STACK,
+            }}
+          >
+            Contact →
+          </a>
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+function ShellHero() {
+  const stack = ["React", "Vite", "Inline-CSS", "A11y", "Keyboard-first"];
+  return (
+    <header
+      id="top"
+      style={{
+        maxWidth: SHELL.maxW,
+        margin: "0 auto",
+        padding: "80px 24px 40px",
+        fontFamily: FONT_STACK,
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          color: COLORS.textSecondary,
+          letterSpacing: 2.2,
+          textTransform: "uppercase",
+          fontWeight: 700,
+          borderLeft: `3px solid ${COLORS.accent}`,
+          paddingLeft: 10,
+          marginBottom: 18,
+        }}
+      >
+        Portfolio · Systems Design
+      </div>
+      <h1
+        className="eash-hero-headline"
+        style={{
+          margin: 0,
+          fontSize: 44,
+          fontWeight: 700,
+          color: COLORS.text,
+          lineHeight: 1.1,
+          letterSpacing: -0.5,
+          maxWidth: 880,
+        }}
+      >
+        An executive control center built on{" "}
+        <span style={{ color: COLORS.accent }}>systems thinking</span>, not a to-do list.
+      </h1>
+      <p
+        style={{
+          fontSize: 18,
+          color: COLORS.textSecondary,
+          lineHeight: 1.55,
+          maxWidth: 680,
+          marginTop: 20,
+          marginBottom: 28,
+        }}
+      >
+        A working EA surface that models the messy reality of the job: blocking
+        dependencies, waiting states, collision-detected timelines, and cascading
+        downstream impact. Keyboard-first, screen-reader ready, built for people who
+        actually ship work.
+      </p>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 30 }}>
+        {stack.map((s) => (
+          <span
+            key={s}
+            className="eash-stack-chip"
+            style={{
+              fontSize: 12,
+              fontWeight: 600,
+              color: COLORS.textSecondary,
+              background: COLORS.cardBg,
+              border: `1px solid ${COLORS.borderColor}`,
+              borderRadius: 20,
+              padding: "6px 12px",
+              fontFamily: MONO_STACK,
+              letterSpacing: 0.3,
+            }}
+          >
+            {s}
+          </span>
+        ))}
+      </div>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <a
+          href="#demo"
+          style={{
+            padding: "12px 20px",
+            borderRadius: 9,
+            background: COLORS.accent,
+            color: "#FFFFFF",
+            textDecoration: "none",
+            fontSize: 14,
+            fontWeight: 700,
+            letterSpacing: 0.2,
+            fontFamily: FONT_STACK,
+          }}
+        >
+          Explore the demo ↓
+        </a>
+        <a
+          href="#case-study"
+          style={{
+            padding: "12px 20px",
+            borderRadius: 9,
+            background: "transparent",
+            color: COLORS.text,
+            textDecoration: "none",
+            fontSize: 14,
+            fontWeight: 700,
+            border: `1px solid ${COLORS.borderStrong}`,
+            letterSpacing: 0.2,
+            fontFamily: FONT_STACK,
+          }}
+        >
+          Read the case study
+        </a>
+      </div>
+    </header>
+  );
+}
+
+function ShellMetricsBand() {
+  const metrics = [
+    { value: 10, suffix: "", unit: "tasks modeled", hero: true, hint: "with real dependencies, owners, and waits" },
+    { value: 4, suffix: "", unit: "view modes", hint: "Today · Week · Calendar · Notes" },
+    { value: 44, suffix: "px", unit: "min touch target", hint: "every interactive element, everywhere" },
+  ];
+  return (
+    <section
+      aria-label="Design metrics"
+      style={{
+        background: COLORS.text,
+        color: COLORS.cardBg,
+        padding: "48px 24px",
+        fontFamily: FONT_STACK,
+        marginTop: 8,
+      }}
+    >
+      <div
+        className="eash-metrics-grid"
+        style={{
+          maxWidth: SHELL.maxW,
+          margin: "0 auto",
+          display: "grid",
+          gridTemplateColumns: "2fr 1fr 1fr",
+          gap: 40,
+          alignItems: "end",
+        }}
+      >
+        {metrics.map((m) => (
+          <div key={m.unit}>
+            <div
+              style={{
+                fontFamily: MONO_STACK,
+                fontSize: m.hero ? 78 : 56,
+                fontWeight: 800,
+                lineHeight: 1,
+                color: m.hero ? COLORS.cardBg : "rgba(250, 251, 253, 0.78)",
+                letterSpacing: -2,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              <AnimatedCounter value={m.value} suffix={m.suffix} />
+            </div>
+            <div
+              style={{
+                fontSize: m.hero ? 15 : 13,
+                color: "rgba(250, 251, 253, 0.72)",
+                marginTop: 12,
+                textTransform: "uppercase",
+                letterSpacing: 1.2,
+                fontWeight: 700,
+              }}
+            >
+              {m.unit}
+            </div>
+            <div
+              style={{
+                fontSize: 12,
+                color: "rgba(250, 251, 253, 0.52)",
+                marginTop: 6,
+                lineHeight: 1.4,
+              }}
+            >
+              {m.hint}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ShellDemoFrame({ children }) {
+  return (
+    <section
+      id="demo"
+      aria-label="Live demo"
+      style={{
+        maxWidth: SHELL.maxW,
+        margin: "0 auto",
+        padding: "72px 24px 40px",
+        fontFamily: FONT_STACK,
+      }}
+    >
+      <div style={{ marginBottom: 20 }}>
+        <div
+          style={{
+            fontSize: 11,
+            color: COLORS.textSecondary,
+            letterSpacing: 2,
+            textTransform: "uppercase",
+            fontWeight: 700,
+            borderLeft: `3px solid ${COLORS.accent}`,
+            paddingLeft: 10,
+          }}
+        >
+          Live demo
+        </div>
+        <h2
+          style={{
+            fontSize: 28,
+            fontWeight: 700,
+            margin: "8px 0 6px",
+            letterSpacing: -0.3,
+            color: COLORS.text,
+          }}
+        >
+          Four views, one operating system
+        </h2>
+        <p
+          style={{
+            fontSize: 15,
+            color: COLORS.textSecondary,
+            margin: 0,
+            maxWidth: 680,
+            lineHeight: 1.55,
+          }}
+        >
+          Switch between Today, Week, Calendar, and Notes. Click any task to see
+          blockers, waiting states, and downstream impact — the way a principal EA
+          actually tracks the day.
+        </p>
+      </div>
+      <div
+        className="eash-demo-frame"
+        style={{
+          background: COLORS.cardBg,
+          borderRadius: 14,
+          border: `1px solid ${COLORS.borderColor}`,
+          overflow: "hidden",
+          boxShadow:
+            "0 1px 2px rgba(42,53,71,0.06), 0 18px 40px rgba(42,53,71,0.08), 0 40px 80px rgba(42,53,71,0.06)",
+        }}
+      >
+        <div
+          aria-hidden="true"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "12px 16px",
+            background: COLORS.cardBgMuted,
+            borderBottom: `1px solid ${COLORS.borderColor}`,
+          }}
+        >
+          <span style={{ display: "flex", gap: 6 }}>
+            <span style={{ width: 11, height: 11, borderRadius: "50%", background: "#E6D4E1" }} />
+            <span style={{ width: 11, height: 11, borderRadius: "50%", background: "#C4CDE3" }} />
+            <span style={{ width: 11, height: 11, borderRadius: "50%", background: "#B5C3DA" }} />
+          </span>
+          <span
+            style={{
+              fontFamily: MONO_STACK,
+              fontSize: 11,
+              color: COLORS.textSecondary,
+              background: COLORS.cardBg,
+              borderRadius: 6,
+              padding: "4px 10px",
+              border: `1px solid ${COLORS.borderColor}`,
+              flex: 1,
+              maxWidth: 360,
+              textAlign: "center",
+            }}
+          >
+            ea-control-center.vercel.app
+          </span>
+        </div>
+        <div style={{ padding: "24px 20px 28px" }}>{children}</div>
+      </div>
+    </section>
+  );
+}
+
+function ShellCaseStudy() {
+  const sections = [
+    {
+      id: "problem",
+      title: "The problem",
+      body:
+        "Generic task apps flatten the work. A real EA day isn't a list of checkboxes — it's a graph. One task blocks another. Another is waiting on someone else's reply. A calendar event collides with a prep window. Miss one dependency and three downstream things slip. Every tool I'd used either ignored dependencies entirely or made them so fiddly you'd stop using them by Thursday.",
+    },
+    {
+      id: "approach",
+      title: "My approach",
+      body:
+        "I modeled the EA reality first, then designed the surface around it. Tasks have blockers, waiting states, and cascading downstream impact. The timeline does collision detection so overbooked days actually look overbooked. Four views answer four different questions — what's urgent now, what's the shape of the week, where does my calendar collide with prep, and what's the running context. Every view shares one color language so switching doesn't cost cognitive load.",
+    },
+    {
+      id: "decisions",
+      title: "Technical decisions",
+      body:
+        "Single-file React component, inline styles, zero external UI libraries — so reviewers can read the whole thing end-to-end in one pass. The Heritage Silver palette is WCAG AA compliant at every contrast pair. 44px minimum touch target on every interactive element. Keyboard-first: tabs, task details, and the quick-add form all work without a mouse. Screen readers get real roles and labels, and prefers-reduced-motion is honored on every animation.",
+    },
+    {
+      id: "reflections",
+      title: "What I'd change next",
+      body:
+        "Next revision adds persistence (local-first, sync later), a real CSV import so the 10-task sample becomes your own workload, and an 'EA debrief' mode that generates the Monday-morning recap from the previous week's task graph. I'd also add shape icons alongside the pastel status pills for color-blind reviewers, and a compact mode for tight sidebars.",
+    },
+  ];
+  return (
+    <section
+      id="case-study"
+      aria-label="Case study"
+      style={{
+        background: COLORS.background,
+        padding: "80px 24px 60px",
+        fontFamily: FONT_STACK,
+        borderTop: `1px solid ${COLORS.borderColor}`,
+      }}
+    >
+      <div style={{ maxWidth: SHELL.maxW, margin: "0 auto" }}>
+        <div
+          style={{
+            fontSize: 11,
+            color: COLORS.textSecondary,
+            letterSpacing: 2,
+            textTransform: "uppercase",
+            fontWeight: 700,
+            borderLeft: `3px solid ${COLORS.accent}`,
+            paddingLeft: 10,
+          }}
+        >
+          Case study
+        </div>
+        <h2
+          style={{
+            fontSize: 28,
+            fontWeight: 700,
+            margin: "8px 0 32px",
+            color: COLORS.text,
+            letterSpacing: -0.3,
+          }}
+        >
+          How this got built
+        </h2>
+        <div
+          className="eash-case-grid"
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(180px, 220px) 1fr",
+            gap: 48,
+            alignItems: "start",
+          }}
+        >
+          <nav
+            aria-label="Case study sections"
+            className="eash-case-toc"
+            style={{
+              position: "sticky",
+              top: 80,
+              fontSize: 13,
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 11,
+                textTransform: "uppercase",
+                letterSpacing: 1.4,
+                color: COLORS.textSecondary,
+                fontWeight: 700,
+                marginBottom: 8,
+              }}
+            >
+              On this page
+            </div>
+            {sections.map((s) => (
+              <a
+                key={s.id}
+                href={`#${s.id}`}
+                className="eash-toc-link"
+                style={{
+                  color: COLORS.textSecondary,
+                  textDecoration: "none",
+                  padding: "6px 0 6px 12px",
+                  borderLeft: `2px solid ${COLORS.borderColor}`,
+                  fontWeight: 600,
+                }}
+              >
+                {s.title}
+              </a>
+            ))}
+          </nav>
+          <div style={{ display: "flex", flexDirection: "column", gap: 36 }}>
+            {sections.map((s) => (
+              <article id={s.id} key={s.id}>
+                <h3
+                  style={{
+                    fontSize: 22,
+                    fontWeight: 700,
+                    margin: "0 0 10px",
+                    color: COLORS.text,
+                    letterSpacing: -0.2,
+                  }}
+                >
+                  {s.title}
+                </h3>
+                <p
+                  style={{
+                    fontSize: 16,
+                    color: COLORS.text,
+                    lineHeight: 1.65,
+                    margin: 0,
+                    maxWidth: 640,
+                  }}
+                >
+                  {s.body}
+                </p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ShellFooterCTA() {
+  return (
+    <footer
+      role="contentinfo"
+      style={{
+        background: COLORS.text,
+        color: COLORS.cardBg,
+        fontFamily: FONT_STACK,
+        padding: "72px 24px 36px",
+      }}
+    >
+      <div style={{ maxWidth: SHELL.maxW, margin: "0 auto" }}>
+        <div
+          className="eash-footer-grid"
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1.4fr 1fr",
+            gap: 48,
+            alignItems: "end",
+            marginBottom: 48,
+          }}
+        >
+          <div>
+            <div
+              style={{
+                fontSize: 11,
+                textTransform: "uppercase",
+                letterSpacing: 2,
+                color: "rgba(250, 251, 253, 0.55)",
+                fontWeight: 700,
+                marginBottom: 12,
+              }}
+            >
+              Next piece →
+            </div>
+            <h2
+              style={{
+                fontSize: 36,
+                fontWeight: 700,
+                margin: 0,
+                lineHeight: 1.15,
+                letterSpacing: -0.4,
+                maxWidth: 560,
+              }}
+            >
+              Need someone who thinks in systems?
+            </h2>
+            <p
+              style={{
+                fontSize: 16,
+                color: "rgba(250, 251, 253, 0.7)",
+                lineHeight: 1.55,
+                marginTop: 14,
+                marginBottom: 0,
+                maxWidth: 480,
+              }}
+            >
+              I'm open to EA, chief-of-staff, and operations roles. If the reasoning
+              here maps to a seat you're trying to fill, I'd love to talk.
+            </p>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-start" }}>
+            <a
+              href="mailto:vikkir29@gmail.com"
+              style={{
+                padding: "14px 22px",
+                borderRadius: 10,
+                background: COLORS.cardBg,
+                color: COLORS.text,
+                textDecoration: "none",
+                fontSize: 15,
+                fontWeight: 700,
+                fontFamily: FONT_STACK,
+              }}
+            >
+              Get in touch →
+            </a>
+            <a
+              href="https://github.com/vika29-gif/ea-control-center"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                padding: "14px 22px",
+                borderRadius: 10,
+                background: "transparent",
+                color: COLORS.cardBg,
+                textDecoration: "none",
+                fontSize: 15,
+                fontWeight: 700,
+                border: `1px solid rgba(250, 251, 253, 0.3)`,
+                fontFamily: FONT_STACK,
+              }}
+            >
+              View source ↗
+            </a>
+          </div>
+        </div>
+        <div
+          style={{
+            fontSize: 12,
+            color: "rgba(250, 251, 253, 0.4)",
+            borderTop: "1px solid rgba(250, 251, 253, 0.15)",
+            paddingTop: 24,
+            display: "flex",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 12,
+          }}
+        >
+          <span>© 2026 Devika Ramkaran · Built with React + Vite</span>
+          <span>vikkir29@gmail.com</span>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+function ShellShortcutOverlay() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const handler = (e) => {
+      const el = e.target;
+      const inField =
+        el instanceof HTMLElement &&
+        (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+      if (inField) return;
+      if (e.key === "?" || (e.shiftKey && e.key === "/")) {
+        e.preventDefault();
+        setOpen((o) => !o);
+      } else if (e.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
+  if (!open) return null;
+  const shortcuts = [
+    { key: "Tab", desc: "Move focus forward" },
+    { key: "Shift + Tab", desc: "Move focus back" },
+    { key: "Enter / Space", desc: "Activate focused element" },
+    { key: "Esc", desc: "Close this overlay or task detail" },
+    { key: "?", desc: "Toggle shortcuts" },
+  ];
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Keyboard shortcuts"
+      onClick={() => setOpen(false)}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 100,
+        background: "rgba(42, 53, 71, 0.45)",
+        backdropFilter: "blur(3px)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+        fontFamily: FONT_STACK,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: COLORS.cardBg,
+          borderRadius: 14,
+          padding: "28px 32px",
+          maxWidth: 440,
+          width: "100%",
+          boxShadow: "0 30px 80px rgba(42, 53, 71, 0.35)",
+          border: `1px solid ${COLORS.borderColor}`,
+        }}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            textTransform: "uppercase",
+            letterSpacing: 2,
+            color: COLORS.textSecondary,
+            fontWeight: 700,
+            marginBottom: 4,
+          }}
+        >
+          Keyboard
+        </div>
+        <h3 style={{ margin: "0 0 20px", fontSize: 22, fontWeight: 700, color: COLORS.text }}>
+          Shortcuts
+        </h3>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {shortcuts.map((s) => (
+            <div
+              key={s.key}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                gap: 14,
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: MONO_STACK,
+                  fontSize: 12,
+                  padding: "4px 10px",
+                  borderRadius: 6,
+                  background: COLORS.cardBgMuted,
+                  border: `1px solid ${COLORS.borderColor}`,
+                  color: COLORS.text,
+                  fontWeight: 600,
+                }}
+              >
+                {s.key}
+              </span>
+              <span style={{ fontSize: 14, color: COLORS.textSecondary, textAlign: "right" }}>
+                {s.desc}
+              </span>
+            </div>
+          ))}
+        </div>
+        <button
+          onClick={() => setOpen(false)}
+          style={{
+            marginTop: 24,
+            background: COLORS.accent,
+            color: "#FFFFFF",
+            border: "none",
+            borderRadius: 8,
+            padding: "10px 16px",
+            fontSize: 14,
+            fontWeight: 600,
+            cursor: "pointer",
+            width: "100%",
+            fontFamily: FONT_STACK,
+          }}
+        >
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ShellKeyboardNudge() {
+  return (
+    <div
+      aria-hidden="true"
+      className="eash-nudge"
+      style={{
+        position: "fixed",
+        bottom: 20,
+        right: 20,
+        zIndex: 40,
+        background: COLORS.cardBg,
+        border: `1px solid ${COLORS.borderColor}`,
+        borderRadius: 20,
+        padding: "6px 14px",
+        fontSize: 11,
+        color: COLORS.textSecondary,
+        fontFamily: FONT_STACK,
+        fontWeight: 600,
+        boxShadow: "0 2px 8px rgba(42, 53, 71, 0.08)",
+        pointerEvents: "none",
+      }}
+    >
+      Press{" "}
+      <kbd
+        style={{
+          fontFamily: MONO_STACK,
+          background: COLORS.cardBgMuted,
+          padding: "1px 6px",
+          borderRadius: 4,
+          fontSize: 10,
+          border: `1px solid ${COLORS.borderColor}`,
+          color: COLORS.text,
+          marginLeft: 2,
+        }}
+      >
+        ?
+      </kbd>{" "}
+      for shortcuts
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Default export — full portfolio page
+// ---------------------------------------------------------------------------
+export default function ExecutiveAssistantControlCenter() {
+  return (
+    <div
+      style={{
+        background: COLORS.background,
+        minHeight: "100vh",
+        color: COLORS.text,
+        fontFamily: FONT_STACK,
+      }}
+    >
+      <style>{`
+        html { scroll-behavior: smooth; }
+        .eash-nav-link, .eash-toc-link {
+          padding: 8px 14px; border-radius: 8px; text-decoration: none;
+          font-size: 13px; font-weight: 600; color: #566175;
+          transition: color 120ms ease, background 120ms ease, border-color 120ms ease;
+        }
+        .eash-nav-link:hover, .eash-toc-link:hover {
+          color: #2A3547; background: rgba(107, 127, 171, 0.08);
+        }
+        .eash-nav-link:focus-visible, .eash-toc-link:focus-visible {
+          outline: 2px solid #6B7FAB; outline-offset: 2px;
+        }
+        .eash-stack-chip { transition: border-color 150ms ease, transform 150ms ease; }
+        .eash-stack-chip:hover { border-color: rgba(107, 127, 171, 0.5); transform: translateY(-1px); }
+        .eash-nudge { animation: eash-nudge-in 400ms 1.2s backwards cubic-bezier(.2,.7,.2,1); }
+        @keyframes eash-nudge-in {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        a:focus-visible, button:focus-visible {
+          outline: 2px solid #6B7FAB; outline-offset: 2px; border-radius: 6px;
+        }
+        @media (max-width: 960px) {
+          .eash-metrics-grid { grid-template-columns: 1fr 1fr !important; gap: 32px !important; }
+        }
+        @media (max-width: 820px) {
+          .eash-metrics-grid { grid-template-columns: 1fr !important; gap: 28px !important; }
+          .eash-case-grid { grid-template-columns: 1fr !important; gap: 24px !important; }
+          .eash-case-toc { position: static !important; flex-direction: row !important; flex-wrap: wrap !important; }
+          .eash-case-toc a { border-left: none !important; border-bottom: 2px solid rgba(42,53,71,0.14); padding: 6px 12px !important; }
+          .eash-footer-grid { grid-template-columns: 1fr !important; gap: 32px !important; align-items: start !important; }
+          .eash-hero-headline { font-size: 34px !important; }
+        }
+        @media (max-width: 640px) {
+          .eash-hero-headline { font-size: 28px !important; }
+          .eash-nav-brand-name { display: none; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          html { scroll-behavior: auto; }
+          .eash-nudge { animation: none; }
+        }
+      `}</style>
+      <ShellTopNav />
+      <ShellHero />
+      <ShellMetricsBand />
+      <ShellDemoFrame>
+        <EAControlCenterCore />
+      </ShellDemoFrame>
+      <ShellCaseStudy />
+      <ShellFooterCTA />
+      <ShellShortcutOverlay />
+      <ShellKeyboardNudge />
+    </div>
+  );
+}
