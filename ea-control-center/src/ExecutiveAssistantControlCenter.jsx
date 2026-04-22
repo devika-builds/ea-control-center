@@ -2917,7 +2917,7 @@ function ShellFooterCTA() {
               Get in touch →
             </a>
             <a
-              href="https://github.com/vika29-gif/ea-control-center"
+              href="https://github.com/devika-builds/ea-control-center"
               target="_blank"
               rel="noopener noreferrer"
               style={{
