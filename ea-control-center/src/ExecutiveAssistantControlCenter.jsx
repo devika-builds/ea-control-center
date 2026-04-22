@@ -2162,40 +2162,23 @@ const EAControlCenterCore = () => {
       `}</style>
     <div
       style={{
-        background: COLORS.cardBg,
+        background: "transparent",
         color: COLORS.text,
         fontFamily: FONT_STACK,
-        padding: 24,
-        borderRadius: 12,
-        border: `1px solid ${COLORS.borderColor}`,
-        boxShadow: "0 1px 2px rgba(42, 53, 71, 0.04), 0 8px 24px rgba(42, 53, 71, 0.06)",
-        minHeight: 640,
+        padding: 0,
       }}
     >
-      {/* Header */}
+      {/* Header — tabs only; shell hero provides the title & tagline */}
       <div
         style={{
           display: "flex",
-          justifyContent: "space-between",
+          justifyContent: "flex-end",
           alignItems: "center",
           marginBottom: 18,
           flexWrap: "wrap",
           gap: 12,
         }}
       >
-        <div>
-          <div style={{ fontSize: 11, color: COLORS.textSecondary, letterSpacing: 2, textTransform: "uppercase", fontWeight: 700, borderLeft: `3px solid ${COLORS.accent}`, paddingLeft: 8 }}>
-            Portfolio Piece
-          </div>
-          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>
-            Executive Assistant Control Center
-          </div>
-          <div style={{ fontSize: 12, color: COLORS.textSecondary, marginTop: 4, maxWidth: 640 }}>
-            Not a task list — a system that models EA reality: blocking dependencies, waiting
-            states, time-boxed days, and cascading downstream impact.
-          </div>
-        </div>
-
         {/* Tabs */}
         <div
           role="tablist"
