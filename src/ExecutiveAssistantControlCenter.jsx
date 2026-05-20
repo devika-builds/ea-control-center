@@ -2246,7 +2246,7 @@ const ExecutiveAssistantControlCenter = () => {
       >
         <div>
           <div style={{ fontSize: 11, color: COLORS.textSecondary, letterSpacing: 2, textTransform: "uppercase", fontWeight: 700, borderLeft: `3px solid ${COLORS.accent}`, paddingLeft: 8 }}>
-            Portfolio Piece
+            Portfolio · Executive Support
           </div>
           <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>
             Executive Assistant Control Center
